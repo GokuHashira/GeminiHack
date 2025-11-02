@@ -13,20 +13,23 @@ const Index = () => {
   const [user, setUser] = useState<any>(null);
   const navigate = useNavigate();
 
+  const DISABLE_AUTH = (import.meta as any).env?.VITE_DISABLE_AUTH === '1' || (import.meta as any).env?.VITE_DISABLE_AUTH === 'true';
+
   useEffect(() => {
+    // Always read session to set user state, but do NOT redirect to /auth
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        navigate("/auth");
-      } else {
+      if (session) {
         setUser(session.user);
+      } else {
+        setUser(null);
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!session) {
-        navigate("/auth");
-      } else {
+      if (session) {
         setUser(session.user);
+      } else {
+        setUser(null);
       }
     });
 
@@ -38,16 +41,22 @@ const Index = () => {
     navigate("/auth");
   };
 
-  if (!user) return null;
+  // Render the page even when not authenticated; uploads will still require auth.
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
       <div className="max-w-[1800px] mx-auto h-[calc(100vh-3rem)]">
         <div className="flex justify-end mb-4">
-          <Button onClick={handleSignOut} variant="ghost" size="sm">
-            <LogOut className="w-4 h-4 mr-2" />
-            Sign Out
-          </Button>
+          {user ? (
+            <Button onClick={handleSignOut} variant="ghost" size="sm">
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </Button>
+          ) : (
+            <Button onClick={() => navigate('/auth')} variant="ghost" size="sm">
+              Sign In
+            </Button>
+          )}
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full">

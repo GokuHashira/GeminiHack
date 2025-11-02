@@ -16,6 +16,7 @@ interface Message {
 
 export const ChatInterface = () => {
   const { toast } = useToast();
+  const BUCKET_NAME = "geminihackbucket"; // Change to your Supabase Storage bucket name
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
@@ -27,10 +28,12 @@ export const ChatInterface = () => {
   const [inputValue, setInputValue] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<{ path: string; url: string | null }[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleSend = async () => {
     if (inputValue.trim() || selectedImages.length > 0) {
+      const instructionText = inputValue.trim();
       setIsProcessing(true);
       
       // Convert images to base64
@@ -47,7 +50,7 @@ export const ChatInterface = () => {
       const newMessage: Message = {
         id: messages.length + 1,
         type: "user",
-        content: inputValue || "Please scan this bill",
+        content: instructionText || "Please scan this bill",
         timestamp: new Date(),
         images: imageUrls,
       };
@@ -58,40 +61,57 @@ export const ChatInterface = () => {
       setSelectedImages([]);
       setIsExpanded(false);
       
-      // If images are present, scan them
+      // If images are present, process via FastAPI (now sending uploaded file path)
       if (imagesToScan.length > 0) {
         try {
-          const { data, error } = await supabase.functions.invoke('scan-bill', {
-            body: { images: imageUrls }
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          if (!token) throw new Error("Please sign in to process receipts.");
+
+          let apiBase = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+          if (/^http:\/\/localhost\/?$/.test(apiBase) || /^http:\/\/127\.0\.0\.1\/?$/.test(apiBase)) {
+            apiBase = "http://localhost:8000";
+          }
+          const form = new FormData();
+          // send only the first uploaded path for now
+          const first = uploadedFiles[0];
+          if (!first?.path) {
+            throw new Error("Please upload the receipt first.");
+          }
+          toast({ title: "Processing receipt", description: `file_path: ${first.path}` });
+          console.debug("Processing file_path:", first.path, "instruction:", instructionText);
+          form.append("file_path", first.path);
+          form.append("split_instruction", instructionText || "Split evenly among participants.");
+          const { data: { session: sess } } = await supabase.auth.getSession();
+          if (!sess?.user?.id) throw new Error("Missing user session");
+          form.append("current_user_id", sess.user.id);
+
+          const res = await fetch(`${apiBase}/process-stored-bill/`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: form,
           });
 
-          if (error) {
-            console.error('Error scanning bill:', error);
-            toast({
-              title: "Error",
-              description: "Failed to scan the bill. Please try again.",
-              variant: "destructive",
-            });
-            
-            setMessages(prev => [...prev, {
-              id: prev.length + 1,
-              type: "bot",
-              content: "Sorry, I couldn't process the bill image. Please try again.",
-              timestamp: new Date(),
-            }]);
-          } else if (data?.scannedData) {
-            setMessages(prev => [...prev, {
-              id: prev.length + 1,
-              type: "bot",
-              content: data.scannedData,
-              timestamp: new Date(),
-            }]);
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err?.detail || `Processing failed (${res.status})`);
           }
+
+          const json = await res.json();
+
+          setMessages(prev => [...prev, {
+            id: prev.length + 1,
+            type: "bot",
+            content: `Receipt processed. File uploaded. URL: ${json.file?.url || "(private)"}`,
+            timestamp: new Date(),
+          }]);
+          // clear uploaded list after successful processing
+          setUploadedFiles([]);
         } catch (err) {
           console.error('Exception scanning bill:', err);
           toast({
             title: "Error",
-            description: "An unexpected error occurred.",
+            description: err instanceof Error ? err.message : "An unexpected error occurred.",
             variant: "destructive",
           });
         }
@@ -111,10 +131,45 @@ export const ChatInterface = () => {
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const files = Array.from(e.target.files);
-      setSelectedImages(prev => [...prev, ...files]);
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const inputEl = e.currentTarget;
+    const files = Array.from(e.target.files);
+
+    // keep local previews
+    setSelectedImages(prev => [...prev, ...files]);
+    // upload immediately to Supabase, then send path to backend on Send
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Please sign in to upload.");
+      const userId = session.user.id;
+
+      const uploads = await Promise.all(files.map(async (file) => {
+        const ext = file.name.split(".").pop() ?? "jpg";
+        const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const filePath = `${userId}/receipts/${fileName}`;
+        const { error } = await supabase.storage
+          .from(BUCKET_NAME)
+          .upload(filePath, file, {
+            cacheControl: "3600",
+            upsert: false,
+            contentType: file.type || "application/octet-stream",
+          });
+        if (error) throw error;
+        const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(filePath);
+        return { path: filePath, url: data.publicUrl as string };
+      }));
+
+      setUploadedFiles(prev => [...prev, ...uploads]);
+      console.debug("Uploaded files:", uploads);
+      const firstPath = uploads[0]?.path;
+      toast({ title: "Uploaded", description: `${uploads.length} file(s). First path: ${firstPath}` });
+    } catch (err: any) {
+      console.error("Upload error:", err);
+      toast({ title: "Upload failed", description: err?.message || "Could not upload file(s)", variant: "destructive" });
+    } finally {
+      // reset input value so same files can be reselected if needed
+      inputEl.value = "";
     }
   };
 

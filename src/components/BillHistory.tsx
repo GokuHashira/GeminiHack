@@ -5,20 +5,17 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 
-interface Bill {
+interface ExpenseItem {
   id: string;
-  title: string;
-  total_amount: number;
-  merchant: string | null;
-  bill_date: string | null;
-  created_at: string;
-  created_by: string;
-  creator_username: string;
+  description: string;
+  amount_cents: number;
+  expense_time: string | null;
+  uploaded_by: string;
   participant_count: number;
 }
 
 export const BillHistory = () => {
-  const [bills, setBills] = useState<Bill[]>([]);
+  const [bills, setBills] = useState<ExpenseItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -50,43 +47,44 @@ export const BillHistory = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Get bills where user is creator or participant
-      const { data: billsData, error } = await supabase
-        .from('bills')
-        .select(`
+      // Strategy: run two queries against expenses and merge results
+      const qBase = `
           id,
-          title,
-          total_amount,
-          merchant,
-          bill_date,
-          created_at,
-          created_by,
-          profiles!bills_created_by_fkey (
-            username
-          ),
-          bill_participants (
-            id
-          )
-        `)
-        .or(`created_by.eq.${user.id},bill_participants.user_id.eq.${user.id}`)
-        .order('created_at', { ascending: false })
-        .limit(10);
+          description,
+          amount_cents,
+          expense_time,
+          uploaded_by,
+          splits ( member_id )
+        `;
 
-      if (error) {
-        console.error('Error loading bills:', error);
-        return;
+      const [{ data: createdBy, error: e1 }] = await Promise.all([
+        supabase.from('expenses').select(qBase).eq('uploaded_by', user.id).order('created_at', { ascending: false }).limit(20),
+      ]);
+
+      const splitIdsRes = await supabase.from('splits').select('expense_id').eq('member_id', user.id);
+      const participantIds = (splitIdsRes.data || []).map((r: any) => r.expense_id);
+      const { data: asParticipant, error: e2 } = participantIds.length
+        ? await supabase.from('expenses').select(qBase).in('id', participantIds).order('created_at', { ascending: false }).limit(20)
+        : { data: [], error: null as any };
+
+      if (e1) { console.error('Error loading created bills:', e1); }
+      if (e2) { console.error('Error loading participant bills:', e2); }
+
+      const mergedMap: Record<string, any> = {};
+      for (const row of [...(createdBy || []), ...(asParticipant || [])]) {
+        mergedMap[row.id] = row;
       }
+      const merged = Object.values(mergedMap) as any[];
+      merged.sort((a, b) => new Date(b.expense_time || b.created_at).getTime() - new Date(a.expense_time || a.created_at).getTime());
+      const top = merged.slice(0, 10);
 
-      const formattedBills: Bill[] = billsData.map((bill: any) => ({
-        id: bill.id,
-        title: bill.title,
-        total_amount: bill.total_amount,
-        merchant: bill.merchant,
-        bill_date: bill.bill_date,
-        created_at: bill.created_at,
-        created_by: bill.created_by,
-        creator_username: bill.profiles.username,
-        participant_count: bill.bill_participants.length,
+      const formattedBills: ExpenseItem[] = top.map((exp: any) => ({
+        id: exp.id,
+        description: exp.description || 'Expense',
+        amount_cents: exp.amount_cents,
+        expense_time: exp.expense_time || null,
+        uploaded_by: exp.uploaded_by,
+        participant_count: exp.splits?.length ?? 0,
       }));
 
       setBills(formattedBills);
@@ -139,7 +137,7 @@ export const BillHistory = () => {
                     <Receipt className="w-6 h-6 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-foreground truncate">{bill.title}</h3>
+                    <h3 className="font-semibold text-foreground truncate">{bill.description}</h3>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span>by {bill.creator_username}</span>
                       <span>•</span>
@@ -155,15 +153,10 @@ export const BillHistory = () => {
                   <div className="text-right">
                     <div className="flex items-center gap-1 font-bold text-foreground">
                       <DollarSign className="w-4 h-4" />
-                      <span>{bill.total_amount.toFixed(2)}</span>
+                      <span>{(bill.amount_cents / 100).toFixed(2)}</span>
                     </div>
-                    {bill.merchant && (
-                      <p className="text-xs text-muted-foreground truncate max-w-[100px]">
-                        {bill.merchant}
-                      </p>
-                    )}
                     <p className="text-xs text-muted-foreground mt-1">
-                      {formatDistanceToNow(new Date(bill.created_at), { addSuffix: true })}
+                      {formatDistanceToNow(new Date(bill.expense_time || bill.created_at), { addSuffix: true })}
                     </p>
                   </div>
                 </div>
