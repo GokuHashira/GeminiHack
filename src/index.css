@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 15% 20%;
+
+    --card: 30 25% 95%;
+    --card-foreground: 220 15% 20%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 20%;
+
+    --primary: 214 95% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 30 25% 95%;
+    --secondary-foreground: 220 15% 20%;
+
+    --muted: 220 10% 90%;
+    --muted-foreground: 220 10% 45%;
+
+    --accent: 155 65% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 10% 85%;
+    --input: 220 10% 85%;
+    --ring: 214 95% 55%;
+
+    --radius: 1rem;
+
+    /* Custom tokens */
+    --chat-bg: 220 15% 25%;
+    --chat-fg: 0 0% 95%;
+    --chat-bubble-user: 214 95% 55%;
+    --chat-bubble-bot: 220 12% 35%;
+    --chat-input: 220 15% 30%;
+
+    --dashboard-bg: 30 25% 95%;
+    --dashboard-card: 0 0% 100%;
+    
+    --voice-bg: 0 0% 98%;
+    --voice-active: 214 95% 55%;
+    --voice-waveform: 214 95% 55%;
+
+    --expense-red: 0 75% 55%;
+    --expense-green: 155 65% 50%;
+    --expense-blue: 214 95% 55%;
+    --expense-orange: 30 95% 55%;
+    --expense-purple: 270 65% 55%;
+  }
+
+  .dark {
+    --background: 220 15% 15%;
+    --foreground: 0 0% 95%;
+
+    --card: 220 15% 20%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 220 15% 20%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 214 95% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 15% 25%;
+    --secondary-foreground: 0 0% 95%;
+
+    --muted: 220 10% 30%;
+    --muted-foreground: 220 10% 60%;
+
+    --accent: 155 65% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 10% 30%;
+    --input: 220 10% 30%;
+    --ring: 214 95% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
